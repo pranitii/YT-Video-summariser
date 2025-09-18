@@ -1,0 +1,4 @@
+import youtube_transcript_api
+from youtube_transcript_api import YouTubeTranscriptApi
+print("Loaded from:", youtube_transcript_api.__file__)
+print("Has get_transcript:", hasattr(YouTubeTranscriptApi, "get_transcript"))
