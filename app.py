@@ -13,7 +13,6 @@ import streamlit as st
 from dotenv import load_dotenv
 import google.generativeai as genai
 
-# --- youtube-transcript-api imports (with robust TooManyRequests shim) ---
 from youtube_transcript_api import (
     YouTubeTranscriptApi,
     NoTranscriptFound,
@@ -22,21 +21,17 @@ from youtube_transcript_api import (
     CouldNotRetrieveTranscript,
 )
 
-# Some package versions don't export TooManyRequests at all.
-# Try to import; if missing, define a local placeholder so "except TooManyRequests" works.
 try:
-    # first, try top-level
     from youtube_transcript_api import TooManyRequests  # type: ignore
 except Exception:
     try:
-        # then, try internal module (exists on some versions)
         from youtube_transcript_api._errors import TooManyRequests  # type: ignore
     except Exception:
         class TooManyRequests(Exception):  # fallback shim
             """Compatibility shim when the package doesn't provide TooManyRequests."""
             pass
 
-# ---------------- Config ----------------
+#  Config 
 load_dotenv()
 API_KEY = os.getenv("GOOGLE_API_KEY", "")
 if not API_KEY:
@@ -52,7 +47,7 @@ PROMPT_PREFIX = (
     "as bullet points with key ideas and facts.\n\nTranscript:\n"
 )
 
-# ---------------- Helpers ----------------
+#Helpers 
 def extract_video_id(url: str) -> str:
     """Support watch?v=ID, youtu.be/ID, /embed/ID, /shorts/ID, and raw 11-char IDs."""
     if not url:
@@ -71,12 +66,10 @@ def extract_video_id(url: str) -> str:
         if parts:
             return parts[-1].split("?")[0]
     return ""
-
 def list_available_transcripts(video_id: str, cookies_path: Optional[str] = None):
     info = {"manual": [], "generated": []}
     try:
         ts = YouTubeTranscriptApi.list_transcripts(video_id, cookies=cookies_path)
-        # access private attrs to separate manual vs auto if available
         info["manual"] = [t.language_code for t in getattr(ts, "_manually_created_transcripts", {}).values()]
         info["generated"] = [t.language_code for t in getattr(ts, "_generated_transcripts", {}).values()]
     except Exception as e:
@@ -95,12 +88,18 @@ def _strip_vtt_to_text(vtt_text: str) -> str:
         lines.append(line.strip())
     return " ".join(lines).strip()
 
+import sys
+
 def _run_ytdlp(cmd: list) -> subprocess.CompletedProcess:
+    """Run yt-dlp; if binary missing on PATH, run the module with THIS Python."""
     try:
         return subprocess.run(cmd, capture_output=True, text=True, check=False)
     except FileNotFoundError:
-        return subprocess.run(["python", "-m", "yt_dlp", *cmd[1:]],
-                              capture_output=True, text=True, check=False)
+        return subprocess.run(
+            [sys.executable, "-m", "yt_dlp", *cmd[1:]],
+            capture_output=True, text=True, check=False
+        )
+
 
 def ytdlp_list_subs(video_id: str, cookies_path: Optional[str] = None) -> dict:
     url = f"https://www.youtube.com/watch?v={video_id}"
@@ -123,7 +122,6 @@ def ytdlp_list_subs(video_id: str, cookies_path: Optional[str] = None) -> dict:
                 if exts:
                     out[bucket][lang] = exts
     return out
-
 def _choose_best_lang(available: dict, prefs: List[str]) -> Optional[tuple]:
     manual = available.get("manual", {})
     auto = available.get("auto", {})
@@ -140,7 +138,6 @@ def _choose_best_lang(available: dict, prefs: List[str]) -> Optional[tuple]:
     if auto:
         k = sorted(auto.keys())[0]; return ("auto", k)
     return None
-
 def fetch_transcript_text_ytdlp(
     video_id: str, prefs: List[str], cookies_path: Optional[str] = None
 ) -> str:
@@ -205,7 +202,6 @@ def fetch_transcript_text_api(
             time.sleep(2 * (attempt + 1)); continue
         except (CouldNotRetrieveTranscript, ValueError, ParseError):
             time.sleep(1.5 * (attempt + 1)); continue
-
         try:
             ts = YouTubeTranscriptApi.list_transcripts(video_id, cookies=cookies_path)
             try:
@@ -224,8 +220,6 @@ def fetch_transcript_text_api(
             time.sleep(1.5 * (attempt + 1)); continue
         except NoTranscriptFound:
             break
-
-    # final try without language constraint
     try:
         ts = YouTubeTranscriptApi.list_transcripts(video_id, cookies=cookies_path)
         t = next(iter(getattr(ts, "_manually_created_transcripts", {}).values()), None) \
@@ -236,15 +230,13 @@ def fetch_transcript_text_api(
                 return txt
     except Exception:
         pass
-
     raise NoTranscriptFound(video_id, languages, {})
-
 def summarize_with_gemini(model_name: str, transcript_text: str) -> str:
     model = genai.GenerativeModel(model_name)
     resp = model.generate_content(PROMPT_PREFIX + transcript_text)
     return resp.text
 
-# ---------------- UI ----------------
+# UI 
 st.title("YouTube Transcript to Detailed Notes Converter")
 
 with st.sidebar:
